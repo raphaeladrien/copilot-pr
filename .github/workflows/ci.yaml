@@ -1,0 +1,53 @@
+name: Copilot AI PR Review
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+jobs:
+  review:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+      models: read
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+     
+      - name: Install GitHub CLI
+        run: |
+            sudo apt update
+            sudo apt install gh jq -y
+    
+      - name: Get PR Diff
+        run: |
+          gh pr diff ${{ github.event.pull_request.number }} > pr.diff
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    
+      - name: Build Review Input
+        run: |
+          cat .github/ai/copilot-pr-review.prompt.md > review_input.txt
+          echo "\n\nPR DIFF:\n" >> review_input.txt
+          cat pr.diff >> review_input.txt
+
+      - name: Call GitHub Copilot AI (GitHub Models)
+        run: |
+          PROMPT=$(jq -Rs . < review_input.txt)
+          curl https://api.github.com/ai/models/gpt-4.1/invoke \
+            -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
+            -H "Content-Type: application/json" \
+            -d "{\"input\": $PROMPT}" \
+            > review_output.json
+
+      - name: Extract Review Text
+        run: |
+          cat review_output.json | jq -r '.output[0].content[0].text' > review.md
+
+      - name: Post PR Comment
+        run: |
+          gh pr comment ${{ github.event.pull_request.number }} --body-file review.md
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

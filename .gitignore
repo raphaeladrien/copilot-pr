@@ -1,3 +1,6 @@
+.DS_Store
+.gradle
+
 # Compiled class file
 *.class
 
