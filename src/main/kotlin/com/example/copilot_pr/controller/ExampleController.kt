@@ -8,7 +8,6 @@ class ExampleController {
 
     @GetMapping("/hello")
     fun hello(): String {
-        println("a simple teste")
         return "Hello world"
     }
 }
