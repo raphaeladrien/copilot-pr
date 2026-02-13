@@ -27,44 +27,70 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     
+      - name: Debug - Check if prompt file exists
+        run: |
+          echo "=== Checking prompt file ==="
+          ls -la .github/ai/ || echo "Directory doesn't exist"
+          if [ -f .github/ai/copilot-pr-review.prompt.md ]; then
+            echo "Prompt file exists"
+            cat .github/ai/copilot-pr-review.prompt.md
+          else
+            echo "ERROR: Prompt file not found!"
+          fi
+    
       - name: Build Review Input
         run: |
-          cat .github/ai/copilot-pr-review.prompt.md > review_input.txt
+          if [ -f .github/ai/copilot-pr-review.prompt.md ]; then
+            cat .github/ai/copilot-pr-review.prompt.md > review_input.txt
+          else
+            echo "Please review the following PR changes:" > review_input.txt
+          fi
           printf "\n\nPR DIFF:\n\n" >> review_input.txt
           cat pr.diff >> review_input.txt
 
       - name: Debug Review Input
+        if: always()
         run: |
           echo "=== Review Input (first 50 lines) ==="
-          head -50 review_input.txt
+          head -50 review_input.txt || echo "review_input.txt not found"
 
       - name: Call GitHub Copilot AI (GitHub Models)
+        continue-on-error: true
         run: |
           PROMPT=$(jq -Rs . < review_input.txt)
-          curl https://api.github.com/ai/models/gpt-4.1/invoke \
+          curl -v https://api.github.com/ai/models/gpt-4.1/invoke \
             -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
             -H "Content-Type: application/json" \
             -d "{\"input\": $PROMPT}" \
             > review_output.json
 
       - name: Debug API Response
+        if: always()
         run: |
           echo "=== Full API Response ==="
-          cat review_output.json
-          echo ""
-          echo "=== Pretty Printed ==="
-          cat review_output.json | jq '.'
+          if [ -f review_output.json ]; then
+            cat review_output.json
+            echo ""
+            echo "=== Pretty Printed ==="
+            cat review_output.json | jq '.' || echo "Invalid JSON"
+          else
+            echo "ERROR: review_output.json not found"
+          fi
 
       - name: Extract Review Text
+        if: always()
         run: |
+          if [ ! -f review_output.json ]; then
+            echo "No API response file found" > review.md
+            exit 0
+          fi
+          
           # Try the original path first
           cat review_output.json | jq -r '.output[0].content[0].text' > review.md
           
           # If review.md is empty or null, try alternative paths
           if [ ! -s review.md ] || [ "$(cat review.md)" = "null" ]; then
             echo "First extraction failed, trying alternative paths..."
-            
-            # Try different possible response structures
             cat review_output.json | jq -r '.choices[0].message.content // .output // .content // .message // .' > review.md
           fi
           
@@ -72,12 +98,14 @@ jobs:
           cat review.md
 
       - name: Post PR Comment
+        if: always()
         run: |
-          if [ -s review.md ] && [ "$(cat review.md)" != "null" ]; then
+          if [ -f review.md ] && [ -s review.md ] && [ "$(cat review.md)" != "null" ]; then
             gh pr comment ${{ github.event.pull_request.number }} --body-file review.md
           else
-            echo "ERROR: No valid review content found"
-            exit 1
+            echo "ERROR: No valid review content found. Posting error message."
+            echo "AI PR Review failed to generate. Check workflow logs for details." | \
+              gh pr comment ${{ github.event.pull_request.number }} --body-file -
           fi
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
