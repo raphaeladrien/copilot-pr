@@ -20,6 +20,12 @@ Output structure:
 risk_level:
 main_concerns:
 
+Use this cooment format:
+// REVIEW [severity] [problem description]
+// FIX: <suggested fix>
+
+Place comments immediately above the line of code that has the issue.
+
 ## Issues
 file:
 line:
