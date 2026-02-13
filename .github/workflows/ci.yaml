@@ -30,11 +30,13 @@ jobs:
       - name: Build Review Input
         run: |
           cat .github/ai/copilot-pr-review.prompt.md > review_input.txt
-          echo "" >> review_input.txt
-          echo "" >> review_input.txt
-          echo "PR DIFF:" >> review_input.txt
-          echo "" >> review_input.txt
+          printf "\n\nPR DIFF:\n\n" >> review_input.txt
           cat pr.diff >> review_input.txt
+
+      - name: Debug Review Input
+        run: |
+          echo "=== Review Input (first 50 lines) ==="
+          head -50 review_input.txt
 
       - name: Call GitHub Copilot AI (GitHub Models)
         run: |
@@ -45,12 +47,37 @@ jobs:
             -d "{\"input\": $PROMPT}" \
             > review_output.json
 
+      - name: Debug API Response
+        run: |
+          echo "=== Full API Response ==="
+          cat review_output.json
+          echo ""
+          echo "=== Pretty Printed ==="
+          cat review_output.json | jq '.'
+
       - name: Extract Review Text
         run: |
+          # Try the original path first
           cat review_output.json | jq -r '.output[0].content[0].text' > review.md
+          
+          # If review.md is empty or null, try alternative paths
+          if [ ! -s review.md ] || [ "$(cat review.md)" = "null" ]; then
+            echo "First extraction failed, trying alternative paths..."
+            
+            # Try different possible response structures
+            cat review_output.json | jq -r '.choices[0].message.content // .output // .content // .message // .' > review.md
+          fi
+          
+          echo "=== Extracted Review ==="
+          cat review.md
 
       - name: Post PR Comment
         run: |
-          gh pr comment ${{ github.event.pull_request.number }} --body-file review.md
+          if [ -s review.md ] && [ "$(cat review.md)" != "null" ]; then
+            gh pr comment ${{ github.event.pull_request.number }} --body-file review.md
+          else
+            echo "ERROR: No valid review content found"
+            exit 1
+          fi
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
