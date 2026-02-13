@@ -9,11 +9,21 @@ Focus only on:
 - production readiness issues (e.g., debug println statements or leftover test code)
 
 Rules:
+- **Relevance:** You **MUST** only add a review comment if there is a demonstrable **BUG**, **ISSUE**, or a significant **OPPORTUNITY FOR IMPROVEMENT** in the code changes.
 - **Any use of println, print, or leftover test/debug code must be reported** as a production issue.
 - **Ignore formatting and stylistic issues.**
-- Do not suggest architecture redesign.
+- **Do not suggest architecture redesign.**
 - **only provide comments** on lines that represent actual changes in the diff. This means your comments must refer **only to lines beginning with `+` or `-`**. **DO NOT** comment on context lines (lines starting with a space).
-- **Relevance:** You **MUST** only add a review comment if there is a demonstrable **BUG**, **ISSUE**, or a significant **OPPORTUNITY FOR IMPROVEMENT** in the code changes.
+- **Dependency changes - What to flag:**
+    * Flag: Adding new dependencies without clear necessity
+    * Flag: Removing dependencies that are still used in code
+    * Flag: Version changes with KNOWN breaking changes or security issues
+    * DO NOT flag: Coordinate corrections (wrong group ID → correct group ID)
+    * DO NOT flag: Well-established library migrations
+- **Evidence requirement:** Only flag dependency changes if you can identify:
+    1. A specific breaking API change that affects existing code, OR
+    2. A known security vulnerability, OR
+    3. An actual incompatibility with other dependencies in the file
 - **Version changes:** For dependency version changes (upgrades OR downgrades):
     * Only flag if the change introduces a KNOWN breaking change, security vulnerability, or incompatibility
     * Do NOT flag version downgrades as issues by default - they may be intentional for compatibility reasons

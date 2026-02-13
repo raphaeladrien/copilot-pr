@@ -61,11 +61,6 @@ jobs:
               "temperature": 0.7,
               "max_tokens": 2000
             }' > review_output.json
-
-      - name: Debug API Response
-        if: always()
-        run: |
-          cat review_output.json | jq '.' || cat review_output.json
       
       - name: Extract Review Text
         run: |
