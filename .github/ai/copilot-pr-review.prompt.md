@@ -9,8 +9,8 @@ Focus only on:
 - production readiness issues (e.g., debug println statements or leftover test code)
 
 Rules:
-- Any use of println, print, or leftover test/debug code must be reported as a production issue.
-- Ignore formatting and stylistic issues.
+- **Any use of println, print, or leftover test/debug code must be reported** as a production issue.
+- **Ignore formatting and stylistic issues.**
 - Do not suggest architecture redesign.
 - **only provide comments** on lines that represent actual changes in the diff. This means your comments must refer **only to lines beginning with `+` or `-`**. **DO NOT** comment on context lines (lines starting with a space).
 - **Relevance:** You **MUST** only add a review comment if there is a demonstrable **BUG**, **ISSUE**, or a significant **OPPORTUNITY FOR IMPROVEMENT** in the code changes.
