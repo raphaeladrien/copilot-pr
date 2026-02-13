@@ -11,6 +11,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
+      models: read
       pull-requests: write
 
     steps:
@@ -64,20 +65,8 @@ jobs:
       - name: Debug API Response
         if: always()
         run: |
-          echo "=== Full API Response ==="
           cat review_output.json | jq '.' || cat review_output.json
       
-      - name: Debug - Check if prompt file exists
-        run: |
-          echo "=== Checking prompt file ==="
-          ls -la .github/ai/ || echo "Directory doesn't exist"
-          if [ -f .github/ai/copilot-pr-review.prompt.md ]; then
-            echo "Prompt file exists"
-            cat .github/ai/copilot-pr-review.prompt.md
-          else
-            echo "ERROR: Prompt file not found!"
-          fi
-
       - name: Extract Review Text
         run: |
           cat review_output.json | jq -r '.choices[0].message.content' > review.md
