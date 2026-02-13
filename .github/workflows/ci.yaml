@@ -45,6 +45,9 @@ jobs:
       - name: Extract Review Text
         run: |
           cat review_output.json | jq -r '.output[0].content[0].text' > review.md
+          echo "---- Review Content ----"
+          cat review.md
+          echo "------------------------"
 
       - name: Post PR Comment
         run: |
