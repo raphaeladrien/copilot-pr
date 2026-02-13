@@ -30,7 +30,10 @@ jobs:
       - name: Build Review Input
         run: |
           cat .github/ai/copilot-pr-review.prompt.md > review_input.txt
-          echo "\n\nPR DIFF:\n" >> review_input.txt
+          echo "" >> review_input.txt
+          echo "" >> review_input.txt
+          echo "PR DIFF:" >> review_input.txt
+          echo "" >> review_input.txt
           cat pr.diff >> review_input.txt
 
       - name: Call GitHub Copilot AI (GitHub Models)
@@ -45,9 +48,6 @@ jobs:
       - name: Extract Review Text
         run: |
           cat review_output.json | jq -r '.output[0].content[0].text' > review.md
-          echo "---- Review Content ----"
-          cat review.md
-          echo "------------------------"
 
       - name: Post PR Comment
         run: |
