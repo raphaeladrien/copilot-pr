@@ -33,7 +33,7 @@ jobs:
           if [ -f .github/ai/copilot-pr-review.prompt.md ]; then
             cat .github/ai/copilot-pr-review.prompt.md > review_input.txt
           else
-            echo "Please review the following PR changes and provide feedback:" > review_input.txt
+            echo "Please review the following PR changes and provide constructive feedback:" > review_input.txt
           fi
           printf "\n\nPR DIFF:\n\n" >> review_input.txt
           cat pr.diff >> review_input.txt
@@ -44,7 +44,7 @@ jobs:
           
           curl -X POST https://models.inference.ai.azure.com/chat/completions \
             -H "Content-Type: application/json" \
-            -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
+            -H "Authorization: Bearer ${{ secrets.GH_MODELS_TOKEN }}" \
             -d '{
               "messages": [
                 {
@@ -65,27 +65,19 @@ jobs:
         if: always()
         run: |
           echo "=== Full API Response ==="
-          cat review_output.json | jq '.'
+          cat review_output.json | jq '.' || cat review_output.json
 
       - name: Extract Review Text
         run: |
           cat review_output.json | jq -r '.choices[0].message.content' > review.md
           
           if [ ! -s review.md ] || [ "$(cat review.md)" = "null" ]; then
-            echo "Failed to extract review. API Response:" > review.md
-            cat review_output.json >> review.md
+            echo "Failed to extract review. Check API response above." > review.md
+            exit 1
           fi
-          
-          echo "=== Extracted Review ==="
-          cat review.md
 
       - name: Post PR Comment
         run: |
-          if [ -s review.md ] && [ "$(cat review.md)" != "null" ]; then
-            gh pr comment ${{ github.event.pull_request.number}} --body-file review.md
-          else
-            echo "ERROR: No valid review content"
-            exit 1
-          fi
+          gh pr comment ${{ github.event.pull_request.number }} --body-file review.md
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
