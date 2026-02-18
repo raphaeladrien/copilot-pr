@@ -113,13 +113,14 @@ jobs:
 
             COMMENT=$(jq -n \
               --arg path "$FILE" \
-              --argjson line "$LINE" \
+              --arg line "$LINE" \
               --arg body "$BODY" \
-              '{path: $path, line: $line, body: $body}')
+              '{path: $path, line: ($line|tonumber), body: $body}')
+
+            echo "Debug comment"
+            echo "$COMMENT"
 
             COMMENTS=$(echo "$COMMENTS" | jq ". + [$COMMENT]")
-            echo "debug comments"
-            echo COMMENTS
           done
 
           echo "=== COMMENTS BUILT ==="
