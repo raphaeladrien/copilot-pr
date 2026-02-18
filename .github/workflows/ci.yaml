@@ -101,6 +101,24 @@ jobs:
             END { if (block) print block > (tmpdir "/blk_" idx) }
           ' tmpdir="$TMPDIR" idx=0 review.md
 
+          # Build a lookup of diffable lines from pr.diff: "filename:linenumber" for every + line
+          # Each hunk header tells us the starting new-file line, then we track line numbers from there
+          declare -A DIFF_LINES
+          current_file=""
+          new_line=0
+          while IFS= read -r diff_line; do
+            if [[ "$diff_line" =~ ^\+\+\+\ b/(.+) ]]; then
+              current_file="${BASH_REMATCH[1]}"
+            elif [[ "$diff_line" =~ ^@@\ -[0-9]+(,[0-9]+)?\ \+([0-9]+)(,[0-9]+)?\ @@ ]]; then
+              new_line="${BASH_REMATCH[2]}"
+            elif [[ "$diff_line" =~ ^\+ && ! "$diff_line" =~ ^\+\+\+ ]]; then
+              DIFF_LINES["$current_file:$new_line"]=1
+              new_line=$((new_line + 1))
+            elif [[ "$diff_line" =~ ^[^-] && ! "$diff_line" =~ ^\-\-\- ]]; then
+              new_line=$((new_line + 1))
+            fi
+          done < pr.diff
+
           # Process each block file
           for BLOCK_FILE in "$TMPDIR"/blk_*; do
             BLOCK=$(cat "$BLOCK_FILE" | tr -d '\r')
@@ -119,6 +137,12 @@ jobs:
 
             if [[ -z "$FILE" || -z "$LINE" || -z "$PROBLEM" ]]; then
               echo "Skipping invalid block: FILE='$FILE' LINE='$LINE' PROBLEM='$PROBLEM'"
+              continue
+            fi
+
+            # Only post comments on lines that are part of the diff
+            if [[ -z "${DIFF_LINES[$FILE:$LINE]}" ]]; then
+              echo "Skipping comment on $FILE:$LINE — not part of the diff"
               continue
             fi
 
