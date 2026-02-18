@@ -98,12 +98,26 @@ jobs:
             END { if (block) print block "\n---BLOCK-END---" }
             ' review.md | while IFS= read -r BLOCK; do
 
-            FILE=$(echo "$BLOCK" | sed -n 's/^[[:space:]]*file:[[:space:]]*//p')
-            LINE=$(echo "$BLOCK" | sed -n 's/^[[:space:]]*line:[[:space:]]*//p')
-            SEVERITY=$(echo "$BLOCK" | sed -n 's/^[[:space:]]*severity:[[:space:]]*//p')
-            PROBLEM=$(echo "$BLOCK" | sed -n 's/^[[:space:]]*problem:[[:space:]]*//p')
-            MINIMAL_FIX=$(echo "$BLOCK" | sed -n 's/^[[:space:]]*minimal_fix:[[:space:]]*//p')
-            SUGGESTED_FIX=$(echo "$BLOCK" | sed -n 's/^[[:space:]]*suggested_fix:[[:space:]]*//p;/```/,/```/p')
+            BLOCK=$(echo "$BLOCK" | tr -d '\r')
+
+            FILE=$(echo "$BLOCK" | grep -Po '(?<=^[[:space:]]*file:[[:space:]]*).*')
+            LINE=$(echo "$BLOCK" | grep -Po '(?<=^[[:space:]]*line:[[:space:]]*).*')
+            SEVERITY=$(echo "$BLOCK" | grep -Po '(?<=^[[:space:]]*severity:[[:space:]]*).*')
+            PROBLEM=$(echo "$BLOCK" | grep -Po '(?<=^[[:space:]]*problem:[[:space:]]*).*')
+            MINIMAL_FIX=$(echo "$BLOCK" | grep -Po '(?<=^[[:space:]]*minimal_fix:[[:space:]]*).*')
+            SUGGESTED_FIX=$(echo "$BLOCK" | awk '
+              BEGIN {capture=0; sfix=""}
+              /^[[:space:]]*suggested_fix:/ {capture=1; sub(/^[[:space:]]*suggested_fix:[[:space:]]*/, ""); sfix=$0; next}
+              capture { sfix = sfix "\n" $0 }
+              END {print sfix}
+              ' | sed 's/[[:space:]]*$//')
+
+
+            if [[ -z "$FILE" || -z "$LINE" || -z "$PROBLEM" ]]; then
+              echo "Skipping invalid block:"
+              echo "$BLOCK"
+              continue
+            fi
 
             # Build comment body including suggested fix if present
             BODY="**[$SEVERITY]** $PROBLEM"$'\n\n'"**Minimal Fix:** $MINIMAL_FIX"
