@@ -81,49 +81,47 @@ jobs:
           PR_NUMBER=${{ github.event.pull_request.number }}
           REPO=${{ github.repository }}
 
+          # Get commit SHA
           COMMIT_SHA=$(gh api repos/$REPO/pulls/$PR_NUMBER --jq '.head.sha')
-          FILES=$(gh api repos/$REPO/pulls/$PR_NUMBER/files --jq '.[] | select(.status != "removed") | .filename')
 
+          # Parse review.md issues section and build comments
           COMMENTS="[]"
 
-          while IFS= read -r FILE; do
-            PATCH=$(gh api repos/$REPO/pulls/$PR_NUMBER/files --jq ".[] | select(.filename == \"$FILE\") | .patch")
+          # Extract each issue block: file, line, severity, problem, fix
+          while IFS= read -r BLOCK; do
+            FILE=$(echo "$BLOCK" | grep "^file:" | sed 's/file: *//')
+            LINE=$(echo "$BLOCK" | grep "^line:" | sed 's/line: *//')
+            SEVERITY=$(echo "$BLOCK" | grep "^severity:" | sed 's/severity: *//')
+            PROBLEM=$(echo "$BLOCK" | grep "^problem:" | sed 's/problem: *//')
+            FIX=$(echo "$BLOCK" | grep "^minimal_fix:" | sed 's/minimal_fix: *//')
 
-            LINE_NUM=0
-            CURRENT_LINE=0
+          # Skip if missing required fields
+          if [[ -z "$FILE" || -z "$LINE" || -z "$PROBLEM" ]]; then
+            continue
+          fi
 
-            while IFS= read -r LINE; do
-              if [[ "$LINE" =~ ^\@\@.*\+([0-9]+) ]]; then
-                CURRENT_LINE=$(( ${BASH_REMATCH[1]} - 1 ))
-              elif [[ "$LINE" =~ ^\+[^\+] ]]; then
-                CURRENT_LINE=$(( CURRENT_LINE + 1 ))
-                LINE_NUM=$CURRENT_LINE
-                break
-              elif [[ ! "$LINE" =~ ^\- ]]; then
-                CURRENT_LINE=$(( CURRENT_LINE + 1 ))
-              fi
-            done <<< "$PATCH"
+          BODY="**[$SEVERITY]** $PROBLEM"$'\n\n'"**Fix:** $FIX"
 
-            if [[ $LINE_NUM -gt 0 ]]; then
-              BODY=$(cat review.md | jq -Rs .)
-              COMMENT=$(jq -n \
-                --arg path "$FILE" \
-                --argjson line "$LINE_NUM" \
-                --argjson body "$BODY" \
-                '{path: $path, line: $line, body: $body}')
-              COMMENTS=$(echo "$COMMENTS" | jq ". + [$COMMENT]")
-            fi
-          done <<< "$FILES"
+          COMMENT=$(jq -n \
+            --arg path "$FILE" \
+            --argjson line "$LINE" \
+            --arg body "$BODY" \
+            '{path: $path, line: $line, body: $body}')
 
+          COMMENTS=$(echo "$COMMENTS" | jq ". + [$COMMENT]")
+
+          done < <(awk '/^Issues/,0' review.md | awk 'BEGIN{RS=""; FS="\n"} /^file:/{print $0}' | while IFS= read -r -d '' block; do echo "$block"; done)
+
+          # Post the review
           jq -n \
             --arg sha "$COMMIT_SHA" \
             --argjson comments "$COMMENTS" \
-            '{commit_id: $sha, body: "Automated review", event: "COMMENT", comments: $comments}' \
+            '{commit_id: $sha, body: "Automated code review", event: "COMMENT", comments: $comments}' \
           | gh api repos/$REPO/pulls/$PR_NUMBER/reviews \
             --method POST \
             --input -
 
-          echo "Done posting $(echo $COMMENTS | jq length) inline comments"
+          echo "Posted $(echo $COMMENTS | jq length) inline comments"
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
