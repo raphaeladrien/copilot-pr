@@ -91,14 +91,21 @@ jobs:
           COMMENTS="[]"
 
           # Split by blank lines (paragraph mode)
-          awk 'BEGIN{RS=""; FS="\n"} /^file:/ || /^line:/ || /^severity:/ || /^problem:/' review.md | while read -r BLOCK; do
+          awk '
+            /^file:/ { 
+              if (block) { print block "\n---BLOCK-END---" } 
+              block=$0; next 
+            } 
+            { block = block "\n" $0 } 
+            END { if (block) print block "\n---BLOCK-END---" }
+            ' review.md | while IFS= read -r BLOCK; do
 
-            FILE=$(echo "$BLOCK" | sed -n 's/^[[:space:]]*file:[[:space:]]*//p' | sed 's/[[:space:]]*$//')
-            LINE=$(echo "$BLOCK" | sed -n 's/^[[:space:]]*line:[[:space:]]*//p' | sed 's/[[:space:]]*$//')
-            SEVERITY=$(echo "$BLOCK" | sed -n 's/^[[:space:]]*severity:[[:space:]]*//p' | sed 's/[[:space:]]*$//')
-            PROBLEM=$(echo "$BLOCK" | sed -n 's/^[[:space:]]*problem:[[:space:]]*//p' | sed 's/[[:space:]]*$//')
-            MINIMAL_FIX=$(echo "$BLOCK" | sed -n 's/^[[:space:]]*minimal_fix:[[:space:]]*//p' | sed 's/[[:space:]]*$//')
-            SUGGESTED_FIX=$(echo "$BLOCK" | sed -n 's/^[[:space:]]*suggested_fix:[[:space:]]*//p' | sed 's/[[:space:]]*$//')
+            FILE=$(echo "$BLOCK" | sed -n 's/^[[:space:]]*file:[[:space:]]*//p')
+            LINE=$(echo "$BLOCK" | sed -n 's/^[[:space:]]*line:[[:space:]]*//p')
+            SEVERITY=$(echo "$BLOCK" | sed -n 's/^[[:space:]]*severity:[[:space:]]*//p')
+            PROBLEM=$(echo "$BLOCK" | sed -n 's/^[[:space:]]*problem:[[:space:]]*//p')
+            MINIMAL_FIX=$(echo "$BLOCK" | sed -n 's/^[[:space:]]*minimal_fix:[[:space:]]*//p')
+            SUGGESTED_FIX=$(echo "$BLOCK" | sed -n 's/^[[:space:]]*suggested_fix:[[:space:]]*//p;/```/,/```/p')
 
             if [[ -z "$FILE" || -z "$LINE" || -z "$PROBLEM" ]]; then
               echo "Skipping invalid block:"
