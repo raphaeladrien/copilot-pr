@@ -78,6 +78,6 @@ jobs:
 
       - name: Post PR Comment
         run: |
-          gh pr review ${{ github.event.pull_request.number }} --comment --body-file review.md
+          gh pr comment ${{ github.event.pull_request.number }} --comment --body-file review.md
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
