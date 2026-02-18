@@ -124,5 +124,7 @@ jobs:
             --input -
 
           echo "Done posting $(echo $COMMENTS | jq length) inline comments"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
      
