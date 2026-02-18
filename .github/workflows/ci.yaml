@@ -17,18 +17,18 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
-     
+
       - name: Install GitHub CLI
         run: |
-            sudo apt update
-            sudo apt install gh jq -y
-    
+          sudo apt update
+          sudo apt install gh jq -y
+
       - name: Get PR Diff
         run: |
           gh pr diff ${{ github.event.pull_request.number }} > pr.diff
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-    
+
       - name: Build Review Input
         run: |
           if [ -f .github/ai/copilot-pr-review.prompt.md ]; then
@@ -42,25 +42,25 @@ jobs:
       - name: Call GitHub Models API
         run: |
           PROMPT=$(jq -Rs . < review_input.txt)
-          
+
           curl -X POST https://models.inference.ai.azure.com/chat/completions \
             -H "Content-Type: application/json" \
             -H "Authorization: Bearer ${{ secrets.GH_MODELS_TOKEN }}" \
-            -d '{
-              "messages": [
+            -d "{
+              \"messages\": [
                 {
-                  "role": "system",
-                  "content": "You are a helpful code reviewer. Provide constructive feedback on code changes."
+                  \"role\": \"system\",
+                  \"content\": \"You are a helpful code reviewer. For each issue found, respond ONLY in the following plain text format with no markdown, no extra commentary, and no blank lines between fields. Separate issues with a blank line.\n\nfile: <relative file path>\nline: <line number>\nseverity: <low|medium|high>\nproblem: <one line description>\nminimal_fix: <one line fix>\nsuggested_fix: <one line suggestion>\"
                 },
                 {
-                  "role": "user",
-                  "content": '"$PROMPT"'
+                  \"role\": \"user\",
+                  \"content\": $PROMPT
                 }
               ],
-              "model": "gpt-4o",
-              "temperature": 0.7,
-              "max_tokens": 2000
-            }' > review_output.json
+              \"model\": \"gpt-4o\",
+              \"temperature\": 0.7,
+              \"max_tokens\": 2000
+            }" > review_output.json
 
       - name: Debug API Response
         if: always()
@@ -72,12 +72,12 @@ jobs:
         run: |
           cat review_output.json | jq -r '.choices[0].message.content' > review.md
           cat review.md
-          
+
           if [ ! -s review.md ] || [ "$(cat review.md)" = "null" ]; then
-            echo "Failed to extract review. Check API response above." > review.md
+            echo "Failed to extract review. Check API response above."
             exit 1
           fi
-          
+
       - name: Post Inline PR Comments
         run: |
           PR_NUMBER=${{ github.event.pull_request.number }}
@@ -88,40 +88,41 @@ jobs:
           echo "Using commit SHA: $COMMIT_SHA"
 
           COMMENTS="[]"
+          TMPDIR=$(mktemp -d)
+          trap 'rm -rf "$TMPDIR"' EXIT
 
-          # Split by blank lines (paragraph mode)
+          # Split review.md into one file per block, using "file:" as the block delimiter
           awk '
-            /^file:/ { 
-              if (block) { print block "\n---BLOCK-END---" } 
-              block=$0; next 
-            } 
-            { block = block "\n" $0 } 
-            END { if (block) print block "\n---BLOCK-END---" }
-            ' review.md | while IFS= read -r BLOCK; do
+            /^file:/ {
+              if (block) { print block > (tmpdir "/blk_" idx); idx++ }
+              block = $0 "\n"; next
+            }
+            { block = block $0 "\n" }
+            END { if (block) print block > (tmpdir "/blk_" idx) }
+          ' tmpdir="$TMPDIR" idx=0 review.md
 
-            BLOCK=$(echo "$BLOCK" | tr -d '\r')
+          # Process each block file
+          for BLOCK_FILE in "$TMPDIR"/blk_*; do
+            BLOCK=$(cat "$BLOCK_FILE" | tr -d '\r')
 
-            FILE=$(echo "$BLOCK" | sed -n 's/^[[:space:]]*file:[[:space:]]*//p')
-            LINE=$(echo "$BLOCK" | sed -n 's/^[[:space:]]*line:[[:space:]]*//p')
-            SEVERITY=$(echo "$BLOCK" | sed -n 's/^[[:space:]]*severity:[[:space:]]*//p')
-            PROBLEM=$(echo "$BLOCK" | sed -n 's/^[[:space:]]*problem:[[:space:]]*//p')
+            FILE=$(echo "$BLOCK"        | sed -n 's/^[[:space:]]*file:[[:space:]]*//p')
+            LINE=$(echo "$BLOCK"        | sed -n 's/^[[:space:]]*line:[[:space:]]*//p')
+            SEVERITY=$(echo "$BLOCK"    | sed -n 's/^[[:space:]]*severity:[[:space:]]*//p')
+            PROBLEM=$(echo "$BLOCK"     | sed -n 's/^[[:space:]]*problem:[[:space:]]*//p')
             MINIMAL_FIX=$(echo "$BLOCK" | sed -n 's/^[[:space:]]*minimal_fix:[[:space:]]*//p')
             SUGGESTED_FIX=$(echo "$BLOCK" | awk '
-              BEGIN {capture=0; sfix=""}
-              /^[[:space:]]*suggested_fix:/ {capture=1; sub(/^[[:space:]]*suggested_fix:[[:space:]]*/, ""); sfix=$0; next}
+              BEGIN { capture=0; sfix="" }
+              /^[[:space:]]*suggested_fix:/ { capture=1; sub(/^[[:space:]]*suggested_fix:[[:space:]]*/, ""); sfix=$0; next }
               capture { sfix = sfix "\n" $0 }
-              END {print sfix}
-              ' | sed 's/[[:space:]]*$//')
+              END { print sfix }
+            ' | sed 's/[[:space:]]*$//')
 
-            LINE=${LINE:1}
-            
             if [[ -z "$FILE" || -z "$LINE" || -z "$PROBLEM" ]]; then
-              echo "Skipping invalid block:"
-              echo "$FILE $LINE $PROBLEM"
+              echo "Skipping invalid block: FILE='$FILE' LINE='$LINE' PROBLEM='$PROBLEM'"
               continue
             fi
 
-            # Build comment body including suggested fix if present
+            # Build comment body
             BODY="**[$SEVERITY]** $PROBLEM"$'\n\n'"**Minimal Fix:** $MINIMAL_FIX"
             if [[ -n "$SUGGESTED_FIX" ]]; then
               BODY="$BODY"$'\n\n'"**Suggested Fix:** $SUGGESTED_FIX"
@@ -133,7 +134,7 @@ jobs:
               --arg body "$BODY" \
               '{path: $path, line: ($line|tonumber), body: $body}')
 
-            echo "Debug comment"
+            echo "Debug comment:"
             echo "$COMMENT"
 
             COMMENTS=$(echo "$COMMENTS" | jq ". + [$COMMENT]")
