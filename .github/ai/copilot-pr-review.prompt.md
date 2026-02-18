@@ -16,6 +16,15 @@ Rules:
 Always fill out the summary and issues section. Do not return null.
 
 Output structure:
+
+For each affected file:
+
+// REVIEW [severity] [problem description]
+// FIX: <suggested fix>
+<problematic line of code>
+
+After all files:
+
 ## Summary
 risk_level:
 main_concerns:
