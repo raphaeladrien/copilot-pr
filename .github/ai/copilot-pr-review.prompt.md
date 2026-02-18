@@ -18,22 +18,20 @@ Always fill out the summary and issues section. Do not return null.
 Output structure:
 
 For each affected file:
-
 // REVIEW [severity] [problem description]
-// FIX: <suggested fix>
-<problematic line of code>
+// FIX: [fix description]
 
-After all files:
+Issues
+file: <exact filename from input>
+line: <exact line number>
+severity: <LOW|MEDIUM|HIGH|CRITICAL>
+problem: <description>
+minimal_fix: <one line fix>
+suggested_fix: <detailed fix>
 
-## Summary
-risk_level:
-main_concerns:
-
-Use this cooment format:
-// REVIEW [severity] [problem description]
-// FIX: <suggested fix>
-
-Place comments immediately above the line of code that has the issue.
+Summary
+risk_level: <low|medium|high|critical>
+main_concerns: <summary or none>
 
 ## Issues
 file:
