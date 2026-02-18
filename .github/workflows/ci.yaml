@@ -66,12 +66,10 @@ jobs:
         run: |
           echo "=== Full API Response ==="
           cat review_output.json | jq '.' || cat review_output.json
-          
+
       - name: Extract Review Text
         run: |
           cat review_output.json | jq -r '.choices[0].message.content' > review.md
-          echo "=== REVIEW.MD CONTENT ==="
-          cat review.md
           
           if [ ! -s review.md ] || [ "$(cat review.md)" = "null" ]; then
             echo "Failed to extract review. Check API response above." > review.md
@@ -85,34 +83,59 @@ jobs:
 
           # Get commit SHA
           COMMIT_SHA=$(gh api repos/$REPO/pulls/$PR_NUMBER --jq '.head.sha')
+          echo "Using commit SHA: $COMMIT_SHA"
 
-          # Parse review.md issues section and build comments
+          # Extract everything after "Issues"
+          ISSUES_CONTENT=$(awk '/^Issues/{flag=1; next} flag' review.md)
+
           COMMENTS="[]"
 
-          # Extract each issue block: file, line, severity, problem, fix
-          while IFS= read -r BLOCK; do
-            FILE=$(echo "$BLOCK" | grep "^file:" | sed 's/file: *//')
-            LINE=$(echo "$BLOCK" | grep "^line:" | sed 's/line: *//')
-            SEVERITY=$(echo "$BLOCK" | grep "^severity:" | sed 's/severity: *//')
-            PROBLEM=$(echo "$BLOCK" | grep "^problem:" | sed 's/problem: *//')
-            FIX=$(echo "$BLOCK" | grep "^minimal_fix:" | sed 's/minimal_fix: *//')
+          # Split by blank lines (paragraph mode)
+          echo "$ISSUES_CONTENT" | awk 'BEGIN{RS=""; FS="\n"} /^file:/' | while read -r BLOCK; do
 
-          # Skip if missing required fields
-          if [[ -z "$FILE" || -z "$LINE" || -z "$PROBLEM" ]]; then
-            continue
+            FILE=$(echo "$BLOCK" | grep "^file:" | sed 's/file: *//' | xargs)
+            LINE=$(echo "$BLOCK" | grep "^line:" | sed 's/line: *//' | xargs)
+            SEVERITY=$(echo "$BLOCK" | grep "^severity:" | sed 's/severity: *//' | xargs)
+            PROBLEM=$(echo "$BLOCK" | grep "^problem:" | sed 's/problem: *//' | xargs)
+            MINIMAL_FIX=$(echo "$BLOCK" | grep "^minimal_fix:" | sed 's/minimal_fix: *//' | xargs)
+            SUGGESTED_FIX=$(echo "$BLOCK" | grep "^suggested_fix:" -A 20 | sed 's/suggested_fix: *//' | xargs)
+
+            if [[ -z "$FILE" || -z "$LINE" || -z "$PROBLEM" ]]; then
+              echo "Skipping invalid block:"
+              echo "$BLOCK"
+              continue
+            fi
+
+            # Ensure LINE is numeric
+            if ! [[ "$LINE" =~ ^[0-9]+$ ]]; then
+              echo "Invalid line number: $LINE"
+              continue
+            fi
+
+            # Build comment body including suggested fix if present
+            BODY="**[$SEVERITY]** $PROBLEM"$'\n\n'"**Minimal Fix:** $MINIMAL_FIX"
+            if [[ -n "$SUGGESTED_FIX" ]]; then
+              BODY="$BODY"$'\n\n'"**Suggested Fix:** $SUGGESTED_FIX"
+            fi
+
+            COMMENT=$(jq -n \
+              --arg path "$FILE" \
+              --argjson line "$LINE" \
+              --arg body "$BODY" \
+              '{path: $path, line: $line, body: $body}')
+
+            COMMENTS=$(echo "$COMMENTS" | jq ". + [$COMMENT]")
+
+          done
+
+          echo "=== COMMENTS BUILT ==="
+          echo "$COMMENTS" | jq '.'
+
+          COUNT=$(echo "$COMMENTS" | jq length)
+          if [ "$COUNT" -eq 0 ]; then
+            echo "No valid comments to post."
+            exit 0
           fi
-
-          BODY="**[$SEVERITY]** $PROBLEM"$'\n\n'"**Fix:** $FIX"
-
-          COMMENT=$(jq -n \
-            --arg path "$FILE" \
-            --argjson line "$LINE" \
-            --arg body "$BODY" \
-            '{path: $path, line: $line, body: $body}')
-
-          COMMENTS=$(echo "$COMMENTS" | jq ". + [$COMMENT]")
-
-          done < <(awk '/^Issues/,0' review.md | awk 'BEGIN{RS=""; FS="\n"} /^file:/{print $0}' | while IFS= read -r -d '' block; do echo "$block"; done)
 
           # Post the review
           jq -n \
@@ -123,8 +146,6 @@ jobs:
             --method POST \
             --input -
 
-          echo "Posted $(echo $COMMENTS | jq length) inline comments"
+          echo "Posted $COUNT inline comments"
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-     
