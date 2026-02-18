@@ -75,9 +75,54 @@ jobs:
             echo "Failed to extract review. Check API response above." > review.md
             exit 1
           fi
-
-      - name: Post PR Comment
+          
+      - name: Post Inline PR Comments
         run: |
-          gh pr comment ${{ github.event.pull_request.number }} -F review.md
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER=${{ github.event.pull_request.number }}
+          REPO=${{ github.repository }}
+
+          COMMIT_SHA=$(gh api repos/$REPO/pulls/$PR_NUMBER --jq '.head.sha')
+          FILES=$(gh api repos/$REPO/pulls/$PR_NUMBER/files --jq '.[] | select(.status != "removed") | .filename')
+
+          COMMENTS="[]"
+
+          while IFS= read -r FILE; do
+            PATCH=$(gh api repos/$REPO/pulls/$PR_NUMBER/files --jq ".[] | select(.filename == \"$FILE\") | .patch")
+
+            LINE_NUM=0
+            CURRENT_LINE=0
+
+            while IFS= read -r LINE; do
+              if [[ "$LINE" =~ ^\@\@.*\+([0-9]+) ]]; then
+                CURRENT_LINE=$(( ${BASH_REMATCH[1]} - 1 ))
+              elif [[ "$LINE" =~ ^\+[^\+] ]]; then
+                CURRENT_LINE=$(( CURRENT_LINE + 1 ))
+                LINE_NUM=$CURRENT_LINE
+                break
+              elif [[ ! "$LINE" =~ ^\- ]]; then
+                CURRENT_LINE=$(( CURRENT_LINE + 1 ))
+              fi
+            done <<< "$PATCH"
+
+            if [[ $LINE_NUM -gt 0 ]]; then
+              BODY=$(cat review.md | jq -Rs .)
+              COMMENT=$(jq -n \
+                --arg path "$FILE" \
+                --argjson line "$LINE_NUM" \
+                --argjson body "$BODY" \
+                '{path: $path, line: $line, body: $body}')
+              COMMENTS=$(echo "$COMMENTS" | jq ". + [$COMMENT]")
+            fi
+          done <<< "$FILES"
+
+          jq -n \
+            --arg sha "$COMMIT_SHA" \
+            --argjson comments "$COMMENTS" \
+            '{commit_id: $sha, body: "Automated review", event: "COMMENT", comments: $comments}' \
+          | gh api repos/$REPO/pulls/$PR_NUMBER/reviews \
+            --method POST \
+            --input -
+
+          echo "Done posting $(echo $COMMENTS | jq length) inline comments"
+
+     
