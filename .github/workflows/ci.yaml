@@ -96,12 +96,12 @@ jobs:
           # Split by blank lines (paragraph mode)
           echo "$ISSUES_CONTENT" | awk 'BEGIN{RS=""; FS="\n"} /^file:/' | while read -r BLOCK; do
 
-            FILE=$(echo "$BLOCK" | grep "^file:" | sed 's/file:[[:space:]]*//; s/[[:space:]]*$//')
-            LINE=$(echo "$BLOCK" | grep "^line:" | sed 's/line:[[:space:]]*//; s/[[:space:]]*$//')
-            SEVERITY=$(echo "$BLOCK" | grep "^severity:" | sed 's/severity:[[:space:]]*//; s/[[:space:]]*$//')
-            PROBLEM=$(echo "$BLOCK" | grep "^problem:" | sed 's/problem:[[:space:]]*//; s/[[:space:]]*$//')
-            MINIMAL_FIX=$(echo "$BLOCK" | grep "^minimal_fix:" | sed 's/minimal_fix:[[:space:]]*//; s/[[:space:]]*$//')
-            SUGGESTED_FIX=$(echo "$BLOCK" | grep "^suggested_fix:" -A 20 | sed 's/suggested_fix:[[:space:]]*//; s/[[:space:]]*$//')
+            FILE=$(echo "$BLOCK" | sed -n 's/^[[:space:]]*file:[[:space:]]*//p' | sed 's/[[:space:]]*$//')
+            LINE=$(echo "$BLOCK" | sed -n 's/^[[:space:]]*line:[[:space:]]*//p' | sed 's/[[:space:]]*$//')
+            SEVERITY=$(echo "$BLOCK" | sed -n 's/^[[:space:]]*severity:[[:space:]]*//p' | sed 's/[[:space:]]*$//')
+            PROBLEM=$(echo "$BLOCK" | sed -n 's/^[[:space:]]*problem:[[:space:]]*//p' | sed 's/[[:space:]]*$//')
+            MINIMAL_FIX=$(echo "$BLOCK" | sed -n 's/^[[:space:]]*minimal_fix:[[:space:]]*//p' | sed 's/[[:space:]]*$//')
+            SUGGESTED_FIX=$(echo "$BLOCK" | sed -n 's/^[[:space:]]*suggested_fix:[[:space:]]*//p' | sed 's/[[:space:]]*$//')
 
             if [[ -z "$FILE" || -z "$LINE" || -z "$PROBLEM" ]]; then
               echo "Skipping invalid block:"
