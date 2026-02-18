@@ -12,7 +12,7 @@ jobs:
     permissions:
       contents: read
       pull-requests: write
-      model: read
+      models: read
 
     steps:
       - name: Checkout repository
