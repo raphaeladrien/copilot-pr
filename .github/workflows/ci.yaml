@@ -88,13 +88,10 @@ jobs:
           COMMIT_SHA=$(gh api repos/$REPO/pulls/$PR_NUMBER --jq '.head.sha')
           echo "Using commit SHA: $COMMIT_SHA"
 
-          # Extract everything after "Issues"
-          ISSUES_CONTENT=$(awk '/^Issues/{flag=1; next} flag' review.md)
-
           COMMENTS="[]"
 
           # Split by blank lines (paragraph mode)
-          echo "$ISSUES_CONTENT" | awk 'BEGIN{RS=""; FS="\n"} /^file:/' | while read -r BLOCK; do
+          awk 'BEGIN{RS=""; FS="\n"} /^file:/ || /^line:/ || /^severity:/ || /^problem:/' review.md | while read -r BLOCK; do
 
             FILE=$(echo "$BLOCK" | sed -n 's/^[[:space:]]*file:[[:space:]]*//p' | sed 's/[[:space:]]*$//')
             LINE=$(echo "$BLOCK" | sed -n 's/^[[:space:]]*line:[[:space:]]*//p' | sed 's/[[:space:]]*$//')
