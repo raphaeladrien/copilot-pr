@@ -71,6 +71,8 @@ jobs:
       - name: Extract Review Text
         run: |
           cat review_output.json | jq -r '.choices[0].message.content' > review.md
+          echo "===Debug review md==="
+          cat review.md
           
           if [ ! -s review.md ] || [ "$(cat review.md)" = "null" ]; then
             echo "Failed to extract review. Check API response above." > review.md
