@@ -111,6 +111,8 @@ jobs:
               BODY="$BODY"$'\n\n'"**Suggested Fix:** $SUGGESTED_FIX"
             fi
 
+            LINE=${LINE:-1}
+
             COMMENT=$(jq -n \
               --arg path "$FILE" \
               --arg line "$LINE" \
