@@ -100,11 +100,11 @@ jobs:
 
             BLOCK=$(echo "$BLOCK" | tr -d '\r')
 
-            FILE=$(echo "$BLOCK" | grep -Po '(?<=^[[:space:]]*file:[[:space:]]*).*')
-            LINE=$(echo "$BLOCK" | grep -Po '(?<=^[[:space:]]*line:[[:space:]]*).*')
-            SEVERITY=$(echo "$BLOCK" | grep -Po '(?<=^[[:space:]]*severity:[[:space:]]*).*')
-            PROBLEM=$(echo "$BLOCK" | grep -Po '(?<=^[[:space:]]*problem:[[:space:]]*).*')
-            MINIMAL_FIX=$(echo "$BLOCK" | grep -Po '(?<=^[[:space:]]*minimal_fix:[[:space:]]*).*')
+            FILE=$(echo "$BLOCK" | sed -n 's/^[[:space:]]*file:[[:space:]]*//p')
+            LINE=$(echo "$BLOCK" | sed -n 's/^[[:space:]]*line:[[:space:]]*//p')
+            SEVERITY=$(echo "$BLOCK" | sed -n 's/^[[:space:]]*severity:[[:space:]]*//p')
+            PROBLEM=$(echo "$BLOCK" | sed -n 's/^[[:space:]]*problem:[[:space:]]*//p')
+            MINIMAL_FIX=$(echo "$BLOCK" | sed -n 's/^[[:space:]]*minimal_fix:[[:space:]]*//p')
             SUGGESTED_FIX=$(echo "$BLOCK" | awk '
               BEGIN {capture=0; sfix=""}
               /^[[:space:]]*suggested_fix:/ {capture=1; sub(/^[[:space:]]*suggested_fix:[[:space:]]*/, ""); sfix=$0; next}
@@ -112,10 +112,11 @@ jobs:
               END {print sfix}
               ' | sed 's/[[:space:]]*$//')
 
-
+            LINE=${LINE:1}
+            
             if [[ -z "$FILE" || -z "$LINE" || -z "$PROBLEM" ]]; then
               echo "Skipping invalid block:"
-              echo "$BLOCK"
+              echo "$FILE $LINE $PROBLEM"
               continue
             fi
 
@@ -124,8 +125,6 @@ jobs:
             if [[ -n "$SUGGESTED_FIX" ]]; then
               BODY="$BODY"$'\n\n'"**Suggested Fix:** $SUGGESTED_FIX"
             fi
-
-            LINE=${LINE:-1}
 
             COMMENT=$(jq -n \
               --arg path "$FILE" \
