@@ -17,97 +17,171 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
-     
+
       - name: Install GitHub CLI
         run: |
-            sudo apt update
-            sudo apt install gh jq -y
-    
+          sudo apt update
+          sudo apt install gh jq -y
+
       - name: Get PR Diff
         run: |
           gh pr diff ${{ github.event.pull_request.number }} > pr.diff
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-    
-      - name: Debug - Check if prompt file exists
-        run: |
-          echo "=== Checking prompt file ==="
-          ls -la .github/ai/ || echo "Directory doesn't exist"
-          if [ -f .github/ai/copilot-pr-review.prompt.md ]; then
-            echo "Prompt file exists"
-            cat .github/ai/copilot-pr-review.prompt.md
-          else
-            echo "ERROR: Prompt file not found!"
-          fi
-    
+
       - name: Build Review Input
         run: |
           if [ -f .github/ai/copilot-pr-review.prompt.md ]; then
             cat .github/ai/copilot-pr-review.prompt.md > review_input.txt
           else
-            echo "Please review the following PR changes:" > review_input.txt
+            echo "Please review the following PR changes and provide constructive feedback:" > review_input.txt
           fi
           printf "\n\nPR DIFF:\n\n" >> review_input.txt
           cat pr.diff >> review_input.txt
 
-      - name: Debug Review Input
-        if: always()
-        run: |
-          echo "=== Review Input (first 50 lines) ==="
-          head -50 review_input.txt || echo "review_input.txt not found"
-
-      - name: Call GitHub Copilot AI (GitHub Models)
-        continue-on-error: true
+      - name: Call GitHub Models API
         run: |
           PROMPT=$(jq -Rs . < review_input.txt)
-          curl -v https://api.github.com/ai/models/gpt-4.1/invoke \
-            -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
+
+          curl -X POST https://models.inference.ai.azure.com/chat/completions \
             -H "Content-Type: application/json" \
-            -d "{\"input\": $PROMPT}" \
-            > review_output.json
+            -H "Authorization: Bearer ${{ secrets.GH_MODELS_TOKEN }}" \
+            -d "{
+              \"messages\": [
+                {
+                  \"role\": \"system\",
+                  \"content\": \"You are a helpful code reviewer. For each issue found, respond ONLY in the following plain text format with no markdown, no extra commentary, and no blank lines between fields. Separate issues with a blank line.\n\nfile: <relative file path>\nline: <line number>\nseverity: <low|medium|high>\nproblem: <one line description>\nminimal_fix: <one line fix>\nsuggested_fix: <one line suggestion>\"
+                },
+                {
+                  \"role\": \"user\",
+                  \"content\": $PROMPT
+                }
+              ],
+              \"model\": \"gpt-4o\",
+              \"temperature\": 0.7,
+              \"max_tokens\": 2000
+            }" > review_output.json
 
       - name: Debug API Response
         if: always()
         run: |
           echo "=== Full API Response ==="
-          if [ -f review_output.json ]; then
-            cat review_output.json
-            echo ""
-            echo "=== Pretty Printed ==="
-            cat review_output.json | jq '.' || echo "Invalid JSON"
-          else
-            echo "ERROR: review_output.json not found"
-          fi
+          cat review_output.json | jq '.' || cat review_output.json
 
       - name: Extract Review Text
-        if: always()
         run: |
-          if [ ! -f review_output.json ]; then
-            echo "No API response file found" > review.md
-            exit 0
-          fi
-          
-          # Try the original path first
-          cat review_output.json | jq -r '.output[0].content[0].text' > review.md
-          
-          # If review.md is empty or null, try alternative paths
-          if [ ! -s review.md ] || [ "$(cat review.md)" = "null" ]; then
-            echo "First extraction failed, trying alternative paths..."
-            cat review_output.json | jq -r '.choices[0].message.content // .output // .content // .message // .' > review.md
-          fi
-          
-          echo "=== Extracted Review ==="
+          cat review_output.json | jq -r '.choices[0].message.content' > review.md
           cat review.md
 
-      - name: Post PR Comment
-        if: always()
-        run: |
-          if [ -f review.md ] && [ -s review.md ] && [ "$(cat review.md)" != "null" ]; then
-            gh pr comment ${{ github.event.pull_request.number }} --body-file review.md
-          else
-            echo "ERROR: No valid review content found. Posting error message."
-            echo "AI PR Review failed to generate. Check workflow logs for details." | \
-              gh pr comment ${{ github.event.pull_request.number }} --body-file -
+          if [ ! -s review.md ] || [ "$(cat review.md)" = "null" ]; then
+            echo "Failed to extract review. Check API response above."
+            exit 1
           fi
+
+      - name: Post Inline PR Comments
+        run: |
+          PR_NUMBER=${{ github.event.pull_request.number }}
+          REPO=${{ github.repository }}
+
+          # Get commit SHA
+          COMMIT_SHA=$(gh api repos/$REPO/pulls/$PR_NUMBER --jq '.head.sha')
+          echo "Using commit SHA: $COMMIT_SHA"
+
+          COMMENTS="[]"
+          TMPDIR=$(mktemp -d)
+          trap 'rm -rf "$TMPDIR"' EXIT
+
+          # Split review.md into one file per block, using "file:" as the block delimiter
+          awk '
+            /^file:/ {
+              if (block) { print block > (tmpdir "/blk_" idx); idx++ }
+              block = $0 "\n"; next
+            }
+            { block = block $0 "\n" }
+            END { if (block) print block > (tmpdir "/blk_" idx) }
+          ' tmpdir="$TMPDIR" idx=0 review.md
+
+          # Build a lookup of diffable lines from pr.diff: "filename:linenumber" for every + line
+          # Each hunk header tells us the starting new-file line, then we track line numbers from there
+          declare -A DIFF_LINES
+          current_file=""
+          new_line=0
+          while IFS= read -r diff_line; do
+            if [[ "$diff_line" =~ ^\+\+\+\ b/(.+) ]]; then
+              current_file="${BASH_REMATCH[1]}"
+            elif [[ "$diff_line" =~ ^@@\ -[0-9]+(,[0-9]+)?\ \+([0-9]+)(,[0-9]+)?\ @@ ]]; then
+              new_line="${BASH_REMATCH[2]}"
+            elif [[ "$diff_line" =~ ^\+ && ! "$diff_line" =~ ^\+\+\+ ]]; then
+              DIFF_LINES["$current_file:$new_line"]=1
+              new_line=$((new_line + 1))
+            elif [[ "$diff_line" =~ ^[^-] && ! "$diff_line" =~ ^\-\-\- ]]; then
+              new_line=$((new_line + 1))
+            fi
+          done < pr.diff
+
+          # Process each block file
+          for BLOCK_FILE in "$TMPDIR"/blk_*; do
+            BLOCK=$(cat "$BLOCK_FILE" | tr -d '\r')
+
+            FILE=$(echo "$BLOCK"        | sed -n 's/^[[:space:]]*file:[[:space:]]*//p')
+            LINE=$(echo "$BLOCK"        | sed -n 's/^[[:space:]]*line:[[:space:]]*//p')
+            SEVERITY=$(echo "$BLOCK"    | sed -n 's/^[[:space:]]*severity:[[:space:]]*//p')
+            PROBLEM=$(echo "$BLOCK"     | sed -n 's/^[[:space:]]*problem:[[:space:]]*//p')
+            MINIMAL_FIX=$(echo "$BLOCK" | sed -n 's/^[[:space:]]*minimal_fix:[[:space:]]*//p')
+            SUGGESTED_FIX=$(echo "$BLOCK" | awk '
+              BEGIN { capture=0; sfix="" }
+              /^[[:space:]]*suggested_fix:/ { capture=1; sub(/^[[:space:]]*suggested_fix:[[:space:]]*/, ""); sfix=$0; next }
+              capture { sfix = sfix "\n" $0 }
+              END { print sfix }
+            ' | sed 's/[[:space:]]*$//')
+
+            if [[ -z "$FILE" || -z "$LINE" || -z "$PROBLEM" ]]; then
+              echo "Skipping invalid block: FILE='$FILE' LINE='$LINE' PROBLEM='$PROBLEM'"
+              continue
+            fi
+
+            # Only post comments on lines that are part of the diff
+            if [[ -z "${DIFF_LINES[$FILE:$LINE]}" ]]; then
+              echo "Skipping comment on $FILE:$LINE — not part of the diff"
+              continue
+            fi
+
+            # Build comment body
+            BODY="**[$SEVERITY]** $PROBLEM"$'\n\n'"**Minimal Fix:** $MINIMAL_FIX"
+            if [[ -n "$SUGGESTED_FIX" ]]; then
+              BODY="$BODY"$'\n\n'"**Suggested Fix:** $SUGGESTED_FIX"
+            fi
+
+            COMMENT=$(jq -n \
+              --arg path "$FILE" \
+              --arg line "$LINE" \
+              --arg body "$BODY" \
+              '{path: $path, line: ($line|tonumber), body: $body}')
+
+            echo "Debug comment:"
+            echo "$COMMENT"
+
+            COMMENTS=$(echo "$COMMENTS" | jq ". + [$COMMENT]")
+          done
+
+          echo "=== COMMENTS BUILT ==="
+          echo "$COMMENTS" | jq '.'
+
+          COUNT=$(echo "$COMMENTS" | jq length)
+          if [ "$COUNT" -eq 0 ]; then
+            echo "No valid comments to post."
+            exit 0
+          fi
+
+          # Post the review
+          jq -n \
+            --arg sha "$COMMIT_SHA" \
+            --argjson comments "$COMMENTS" \
+            '{commit_id: $sha, body: "Automated code review", event: "COMMENT", comments: $comments}' \
+          | gh api repos/$REPO/pulls/$PR_NUMBER/reviews \
+            --method POST \
+            --input -
+
+          echo "Posted $COUNT inline comments"
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GH_MODELS_TOKEN }}
