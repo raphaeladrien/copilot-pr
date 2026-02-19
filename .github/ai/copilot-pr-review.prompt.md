@@ -7,6 +7,10 @@ Focus only on:
 - backward compatibility risks
 - dependency problems
 - production readiness issues (e.g., debug println statements or leftover test code)
+- maintainability risks
+- excessive cyclomatic complexity
+- architectural risks that impact long-term stability
+
 
 **Output Rules (CRITICAL):**
 - You MUST output an Issues section.
